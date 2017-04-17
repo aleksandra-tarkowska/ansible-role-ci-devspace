@@ -1,3 +1,219 @@
 ---
+# Setup a devspace
 
-- include: devspace-install.yml
+- name: add {{ devspace_user }} to docker group
+  become: yes
+  user:
+    name: "{{ devspace_user }}"
+    groups: docker
+    append: yes
+
+- name: ensures {{ devspace_homedir }}/.ssh dir exists
+  become: yes
+  become_user: "{{ devspace_user }}"
+  file:
+    path: "{{ devspace_homedir }}/.ssh"
+    state: "directory"
+    owner: "{{ devspace_user }}"
+    group: "{{ devspace_user }}"
+    mode: 0700
+
+- name: allow {{ devspace_user }} to ssh directly
+  become: yes
+  copy:
+    remote_src: yes
+    src: "{{ ansible_env.HOME }}/.ssh/authorized_keys"
+    dest: "{{ devspace_homedir }}/.ssh/authorized_keys"
+    owner: "{{ devspace_user }}"
+    group: "{{ devspace_user }}"
+
+- name: install python tools
+  become: yes
+  yum:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - python-devel
+    - python-pip
+
+- name: install python packages
+  become: yes
+  pip:
+    name: "{{ item }}"
+    #extra_args: "--upgrade"
+    state: latest
+  with_items:
+    - pip
+    - passlib
+    - pyyaml
+    - docker-compose==1.9.0
+
+- name: clone git dependent repositories
+  become: yes
+  become_user: "{{ devspace_user }}"
+  git:
+    repo: "{{ item.git_repo }}"
+    dest: "{{ item.home }}"
+    update: "{{ item.git_update }}"
+    force: "{{ item.git_force }}"
+    refspec: "+refs/pull/*:refs/heads/*"
+    version: "{{ item.git_repo_version }}"
+  with_items: "{{ omero_ssh_slave }}"
+
+- name: clone devspace
+  become: yes
+  become_user: "{{ devspace_user }}"
+  git:
+    repo: "{{ devspaceci.git_repo }}"
+    dest: "{{ devspaceci.home }}"
+    update: "{{ devspaceci.git_update }}"
+    force: "{{ devspaceci.git_force }}"
+    refspec: "+refs/pull/*:refs/heads/*"
+    version: "{{ devspaceci.git_repo_version }}"
+  register: gitstatus
+
+# TASK [openmicroscopy.ci-devspace : Devspace stop] **********************************************************************************
+# fatal: [a20ea3a7-7d96-4db1-aed3-c4f9de103313]: FAILED! => {"changed": false, "failed": true, "msg": "Error connecting: Error while fetching server API version: ('Connection aborted.', error(13, 'Permission denied'))"}
+- name: Devspace stop
+  become: yes
+  become_user: "{{ devspace_user }}"
+  docker_service:
+    project_src: "{{ devspaceci.home }}"
+    state: absent
+  when: gitstatus.changed
+
+# config
+- name: ensures .ssh dir exists
+  become: yes
+  become_user: "{{ devspace_user }}"
+  file:
+    path: "{{ devspaceci.home }}/git/.ssh"
+    state: directory
+    owner: "{{ devspace_user }}"
+    group: "{{ devspace_user }}"
+    mode: 0700
+
+- name: copy snoopy
+  become: yes
+  become_user: "{{ devspace_user }}"
+  copy:
+     src: "{{ snoopy_dir_path }}/{{ item.srcfile }}"
+     dest: "{{ devspaceci.home }}/git/{{ item.dest }}"
+     owner: "{{ devspace_user }}"
+     group: "{{ devspace_user }}"
+     mode: 0700
+  with_items:
+    - { srcfile: ".ssh/config", dest: ".ssh/config" }
+    - { srcfile: ".ssh/snoopycrimecop_github", dest: ".ssh/snoopycrimecop_github" }
+    - { srcfile: ".ssh/snoopycrimecop_github.pub", dest: ".ssh/snoopycrimecop_github.pub" }
+    - { srcfile: ".gitconfig", dest: ".gitconfig" }
+  when: snoopy_dir_path|length>0
+
+- name: known_hosts
+  become: yes
+  become_user: "{{ devspace_user }}"
+  shell: ssh-keyscan github.com >> {{ devspaceci.home }}/git/.ssh/known_hosts
+- name: chmod known_hosts
+  become: yes
+  become_user: "{{ devspace_user }}"
+  file:
+    path: "{{ devspaceci.home }}/git/.ssh/known_hosts"
+    mode: 0700
+
+- name: set basic auth password for nginx proxy
+  become: yes
+  lineinfile:
+    dest: "{{ devspaceci.home }}/jenkins/conf.d/jenkins.conf"
+    backup: yes
+    regexp: "^        auth_basic \"Restricted\";"
+    line: "        auth_basic \"Restricted\";"
+    insertafter: "    location / {"
+    state: present
+  when: devspace_jenkins_nginx_username|length>0 and devspace_jenkins_nginx_password|length>0
+
+- name: set basic auth password for nginx proxy
+  become: yes
+  lineinfile:
+    dest: "{{ devspaceci.home }}/jenkins/conf.d/jenkins.conf"
+    backup: yes
+    regexp: "^        auth_basic_user_file /etc/nginx/conf.d/passwdfile;"
+    line: "        auth_basic_user_file /etc/nginx/conf.d/passwdfile;"
+    insertafter: "        auth_basic \"Restricted\";"
+    state: present
+  when: devspace_jenkins_nginx_username|length>0 and devspace_jenkins_nginx_password|length>0
+
+- name: set nginx proxy password
+  become: yes
+  become_user: "{{ devspace_user }}"
+  htpasswd:
+    path: "{{ devspaceci.home }}/jenkins/conf.d/passwdfile"
+    name: "{{ devspace_jenkins_nginx_username }}"
+    password: "{{ devspace_jenkins_nginx_password }}"
+  when: devspace_jenkins_nginx_username|length>0 and devspace_jenkins_nginx_password|length>0
+
+- name: Build docker images
+  become: yes
+  docker_image:
+    path: "{{ item.home }}"
+    name: "{{ item.name }}"
+    state: present
+  with_items: "{{ omero_ssh_slave }}"
+
+# - name: ssl cert for jenkins
+#   become: yes
+#   become_user: "{{ devspace_user }}"
+#   command: "{{ devspaceci.home }}/sslcert {{ devspaceci.home }}/jenkins/sslcert {{ devspace_openstack_ip }}"
+#   args:
+#     chdir: "{{ devspaceci.home }}"
+#     creates: "{{ devspaceci.home }}/jenkins/sslcert"
+#
+# - name: ssl cert for nginx
+#   become: yes
+#   become_user: "{{ devspace_user }}"
+#   command: "{{ devspaceci.home }}/sslcert {{ devspaceci.home }}/nginx/sslcert {{ devspace_openstack_ip }}"
+#   args:
+#     chdir: "{{ devspaceci.home }}"
+#     creates: "{{ devspaceci.home }}/nginx/sslcert"
+
+# - name: rename to {{ devspace_omero_branch }}...
+#   become: yes
+#   become_user: "{{ devspace_user }}"
+#   command: "{{ devspaceci.home }}/rename.py {{ devspace_omero_branch }}"
+#   args:
+#     chdir: "{{ devspaceci.home }}"
+
+- name: fix jenkinsUrl
+  become: yes
+  become_user: "{{ devspace_user }}"
+  replace:
+    dest: "{{ devspaceci.home }}/jenkins_home/{{ item }}"
+    regexp: '^(.*)<jenkinsUrl>(.*)</jenkinsUrl>'
+    replace: '\1<jenkinsUrl>https://{{ devspace_openstack_ip }}:8443</jenkinsUrl>'
+  with_items:
+    - jenkins.model.JenkinsLocationConfiguration.xml
+  when: devspace_openstack_ip|length>0
+
+# end of config
+
+- name: Start up
+  become: yes
+  become_user: "{{ devspace_user }}"
+  environment:
+    DOCKER_IPV4_MTU: "{{ ansible_default_ipv4.mtu }}"
+    DOCKER_API: "{{ vmdocker.openstack.private_v4 }}"
+    JENKINS_USERNAME: "{{ devspace_jenkins_username }}"
+    JENKINS_PASSWORD: "{{ devspace_jenkins_password }}"
+  docker_service:
+    project_src: "{{ devspaceci.home }}"
+    state: present
+
+  register: output
+
+- debug: var=output
+
+- assert:
+    that:
+    - "ci.devspaceci_ci_1.state.running"
+    - "db.devspaceci_db_1.state.running"
+    - "gitmirror.devspaceci_gitmirror_1.state.running"
+    - "redis.devspaceci_redis_1.state.running"

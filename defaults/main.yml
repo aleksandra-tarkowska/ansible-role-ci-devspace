@@ -1,44 +1,47 @@
 ---
 
-# Force Docker to use the MTU set by the main IPV4 interface.
-# This may be necessary on virtualised hosts, see comment in `docker/defaults/main.yml`.
-docker_use_ipv4_nic_mtu: True
-
 # path to snoopy keys like "/path/to/snoopy_keys"
 snoopy_dir_path: ""
 
-# devspace source
-devspace_git_repo: "https://github.com/openmicroscopy/devspace.git"
-# devspace branch
-devspace_git_repo_version: "0.4.0"
-# Options
-devspace_git_update: no
-devspace_git_force: no
-
 # devspace user
-devspace_user: omero
+devspace_user: centos
+devspace_homedir: /home/{{ devspace_user }}
 
-# devspace user id
-devspace_user_id: "1001"
-devspace_compose: "v1"
+devspaceci:
+  # devspace source
+  git_repo: "https://github.com/aleksandra-tarkowska/devspace-ci.git"
+  # devspace branch
+  git_repo_version: "master"
+  # Options
+  git_update: no
+  git_force: no
+  # path where devspace will be installed
+  home: "{{ devspace_homedir }}/devspace-ci"
 
-# path where devspace will be installed
-devspace_home: /home/{{ devspace_user }}/devspace
+omero_ssh_slave:
+  - slave:
+    # devspace source
+    git_repo: "https://github.com/aleksandra-tarkowska/omero-devspace-ci-slave-docker.git"
+    # devspace branch
+    git_repo_version: "master"
+    # Options
+    git_update: no
+    git_force: no
+    # path where devspace will be installed
+    home: "{{ devspace_homedir }}/omero_ssh_slave"
+    name: "ome/omero-ssh-slave"
 
 # openstack IP e.g. 10.0.50.100
 devspace_openstack_ip: "{{ ansible_host }}"
+devspace_docker_api: "127.0.0.1"
 
 # rename to:
 devspace_omero_branch: develop
 
-devspace_handler_tasks: "devspace-runtime.yml"
-
-devspace_force_restart: true
-
 # SECURITY
 # jenkins admin credentials:
 devspace_jenkins_username: devspace
-devspace_jenkins_password:
+devspace_jenkins_password: 
 
 # jenkins nginx credentials:
 devspace_jenkins_nginx_username: devspace
