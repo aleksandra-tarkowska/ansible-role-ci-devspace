@@ -19,7 +19,7 @@ devspaceci:
   home: "{{ devspace_homedir }}/devspace-ci"
 
 omero_ssh_slave:
-  - slave:
+  - slave1:
     # devspace source
     git_repo: "https://github.com/aleksandra-tarkowska/omero-devspace-ci-slave-docker.git"
     # devspace branch
@@ -28,8 +28,19 @@ omero_ssh_slave:
     git_update: no
     git_force: no
     # path where devspace will be installed
-    home: "{{ devspace_homedir }}/omero_ssh_slave"
+    home: "{{ devspace_homedir }}/omero-ssh-slave"
     name: "ome/omero-ssh-slave"
+  - slave2:
+    # devspace source
+    git_repo: "https://github.com/aleksandra-tarkowska/omero-test-slave-docker.git"
+    # devspace branch
+    git_repo_version: "master"
+    # Options
+    git_update: no
+    git_force: no
+    # path where devspace will be installed
+    home: "{{ devspace_homedir }}/omero-test-slave"
+    name: "ome/omero-test-slave"
 
 # openstack IP e.g. 10.0.50.100
 devspace_openstack_ip: "{{ ansible_host }}"
